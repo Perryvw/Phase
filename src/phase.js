@@ -3,104 +3,113 @@
  * development of responsive dota 2 custom UIs.
  *
  * Developed and maintained by: Perry
+ *
+ * Usage:
+ * Firstly include the phase.js into the xml file.
+ *
+ * Animate an object with id 'exampleObject' by calling:
+ * Phase( $('#exampleObject') ).Translate( 300, 500, 200, 'ease' );
+ *
+ * A callback when done is also available:
+ * Phase( $('#exampleObject') ).Translate( 300, 500, 200, 'ease' ).OnFinished( function( context )
+ * {
+ * 		$.Msg( "Animation 1 done!" );
+ * 		context.Translate( 700, -100, 0 );
+ * } );
  */
 
  /* Contructor */
-function Phase() {
-}
+function Phase( element ) {
+	if (!Phase.context[element]) {
+		Phase.context[element] = new Context( element );
+	}
+
+	return Phase.context[element];
+};
 
 /* Phase initialisation */
 (function() {
-	Phase.animations = [];
-	Phase.aniLoopRunning = false;
-	Phase.previousTick = -1;
-
-	Phase.DEF_VAL = {
-		"opacity" : "1;"
-	};
+	Phase.context = {};
 }());
 
 /* Phase animation functions
 =========================================================================================*/
 
-/* Phase animation update loop */
-Phase.UpdateLoop = function() {
-	//Set animation meta values
-	var frameTime = Game.GetGameTime() - Phase.previousTick;
+/* Context helper class
+=========================================================================================*/
+var Context = function( element ) {
+	this.element = element;
+	this.animations = {};
+};
 
-	//Skip in case it scheduled twice on the same frame
-	if (frameTime > 0) {
-		//update all animations
-		var i = 0;
-		while ( i < Phase.animations.length) {
-			//Update the animation
-			var anim = Phase.animations[i];
-			var timeLeft = anim.endTime - Game.GetGameTime();
-
-			//Update all goals
-			for (var property in anim.goal) {
-				var goalVal = anim.goal[property];
-				var pxProp = anim.target.style[property].indexOf( 'px' ) > -1;
-				var curVal = pxProp ? parseFloat(anim.target.style[property].replace('px', '')) : parseFloat(anim.target.style[property]);
-
-				var distance = goalVal - curVal;
-
-				if (timeLeft > 0) {
-					var newVal = curVal + distance * frameTime / timeLeft;
-					$.Msg(newVal);
-					anim.target.style[property] = pxProp ? newVal + 'px;' : newVal + ";";
-				} else {
-					anim.target.style[property] = pxProp ? goalVal + 'px;' : goalVal + ";";
-				}
-			}
-
-			//If the animation has ended, remove it
-			if (timeLeft <= 0) {
-				Phase.animations.splice( i, 1 );
-			} else {
-				i++;
-			}
-		}
-	}
-
-	//See if we continue or not
-	if ( Phase.animations.length > 0 ) {
-		Phase.previousTick = Game.GetGameTime();
-		$.Schedule( 0.03, Phase.UpdateLoop );
-	} else {
-		Phase.aniLoopRunning = false;
-	}
-}
-
-/* Animate
- * Animate an element.
- * Parameters:
- * 		element {object} 	- The element to animate.
- *		duration {int} 		- The animation duration in ms.
- *		properties {object} - An object containing the goal for each property to animate.
- *		easing {function}	- The easing function to use.
+/* Update
+ * Update the css properties for this context's element.
  */
-Phase.Animate = function( element, duration, properties, easing ) {
-	//Check if properties are set
-	for (property in properties) {
-		if (element.style[property] == null) {
-			element.style[property] = Phase.DEF_VAL[property];
-		}
+Context.prototype.Update = function() {
+	var transitionStr = "";
+
+	var toDelete = [];
+
+	for (var property in this.animations) {
+		var anim = this.animations[property];
+		if ( Game.GetGameTime() * 1000 + anim.options.duration - anim.options.startTime > 0 ) {
+			transitionStr += property;
+			transitionStr += " " + anim.options.duration + "ms ";
+			transitionStr += anim.options.easing + " 0.0ms";
+		} else {
+			toDelete.push( this.animations[property] );
+		}	
 	}
 
-	Phase.animations.push({ 
-		target: element, 
-		goal: properties,
-		endTime: Game.GetGameTime() + duration/1000, 
-		ease: easing
+	for ( var i = 0; i < toDelete.length; i++ ) {
+		delete toDelete[i];
+	}
+
+	this.element.style['transition'] = transitionStr + ';';
+
+	for (var property in this.animations) {
+		this.element.style[property] = this.animations[property].options.goal+";";
+	}
+};
+
+/* Translate
+ * Translate this context's element to a position with some duration and easing.
+ * Params:
+ * 		- duration {integer}	- The animation duration in ms.
+ *		- x {integer} 			- The x value to animate to. 
+ *		- y {integer} 			- The y value to animate to.
+ *		- easing {string}		- The easing function to use. (Optional)
+ */
+Context.prototype.Translate = function( duration, x, y, easing ) {
+	this.animations['transform'] = new Animation( this, {
+		duration : duration,
+		startTime : Game.GetGameTime() * 1000,
+		goal : 'translateX('+x+'px) translateY('+y+'px)',
+		easing : easing ? easing : 'linear'
 	});
 
-	//Start the loop
-	if (!Phase.aniLoopRunning) {
-		Phase.aniLoopRunning = true;
-		Phase.previousTick = Game.GetGameTime();
-		Phase.UpdateLoop();
-	}
+	this.Update();
+
+	return this.animations['transform'];
+};
+
+
+/* Animation helper class
+=========================================================================================*/
+function Animation( context, options ) {
+	this.context = context;
+	this.options = options;
+};
+
+/* OnFinished
+ * Register a callback to be called once this animation finishes,
+ * pass the context to the callback as argument.
+ */
+Animation.prototype.OnFinished = function( callback ) {
+	var context = this.context;
+	$.Schedule( this.options.duration / 1000, function() {
+		callback(context);
+	});
 };
 
 /* Phase utility functions
@@ -118,22 +127,22 @@ Phase.DeepPrint = function( object, indent, name ) {
 
 	switch(typeof object) {
 		case 'undefined':
-			$.Msg( Array(indent + 1).join("\t") + 'undefined' );
+			$.Msg( Array(indent + 1).join('\t') + 'undefined' );
 			break;
 		case 'object':
 
-			var openingString = typeof name === 'undefined' ? "{" : name + " : {";
-			$.Msg( Array( indent + 1 ).join( "\t" ) + openingString );
+			var openingString = typeof name === 'undefined' ? '{' : name + ' : {';
+			$.Msg( Array( indent + 1 ).join( '\t' ) + openingString );
 
 			for ( var key in object ) {
 				if ( typeof object[key] === 'object' ) {
 					Phase.DeepPrint( object[key], indent + 1, key );
 				} else {
-					$.Msg( Array(indent + 2).join("\t") + key + " : " + object[key] );
+					$.Msg( Array(indent + 2).join('\t') + key + ' : ' + object[key] );
 				}
 			}
 
-			$.Msg( Array(indent + 1).join("\t") + "}" );
+			$.Msg( Array(indent + 1).join('\t') + '}' );
 			break;
 		default:
 			$.Msg( object );
