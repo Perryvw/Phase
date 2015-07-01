@@ -49,7 +49,7 @@ Vector.FromArray = function( array ) {
 	if ( array.length == 2 ) {
 		return new Vector( array[0], array[1], 0 );
 	} else if ( array.length == 3 ) {
-		return new Vector( array[0], array[1], 0 );
+		return new Vector( array[0], array[1], array[2] );
 	} else {
 		return new Vector( 0, 0, 0 );
 	}
